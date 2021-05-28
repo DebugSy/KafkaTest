@@ -13,6 +13,7 @@ import java.util.Date;
 import java.util.Properties;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Created by P0007 on 2020/03/09.
@@ -33,15 +34,20 @@ public class KafkaProducer_0_10 implements Runnable{
 
     private RateLimiter rateLimiter;
 
+    private CountDownLatch countDownLatch;
+
     public static SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMddHHmm");
 
-    public KafkaProducer_0_10(int partition, String bootstrap, String topic, long batchSize, long limit, double rate) {
+    public KafkaProducer_0_10(int partition, String bootstrap, String topic,
+                              long batchSize, long limit, double rate,
+                              CountDownLatch countDownLatch) {
         this.partition = partition;
         this.bootstrap = bootstrap;
         this.topic = topic;
         this.batchSize = batchSize;
         this.limit = limit;
         this.rateLimiter = RateLimiter.create(rate);
+        this.countDownLatch = countDownLatch;
     }
 
     /**
@@ -54,26 +60,30 @@ public class KafkaProducer_0_10 implements Runnable{
      * @param args
      * @throws InterruptedException
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         String bootstrap = args[0];
         String topic = args[1];
         int partitionSize = Integer.valueOf(args[2]);
         long batchSize = Long.valueOf(args[3]);
         long limit = Long.valueOf(args[4]);
         double rate = Double.valueOf(args[5]);
+        CountDownLatch countDownLatch = new CountDownLatch(partitionSize);
         for (int i = 0; i < partitionSize; i++) {
-            KafkaProducer_0_10 kafkaProducer = new KafkaProducer_0_10(i, bootstrap, topic, batchSize, limit, rate);
+            KafkaProducer_0_10 kafkaProducer = new KafkaProducer_0_10(i, bootstrap, topic, batchSize, limit, rate, countDownLatch);
             Thread thread = new Thread(kafkaProducer);
             thread.setName("Thread-" + i);
             thread.start();
             log.info("Starting thread, name: " + thread.getName());
         }
+        countDownLatch.await();
     }
 
     @Override
     public void run() {
         KafkaProducer kafkaProducer = initProducer();
         produce(kafkaProducer, topic, limit);
+        log.info(Thread.currentThread().getName() + " finished");
+        countDownLatch.countDown();
     }
 
     public KafkaProducer initProducer() {
@@ -116,6 +126,8 @@ public class KafkaProducer_0_10 implements Runnable{
                 break;
             }
         }
+        producer.flush();
+        producer.close();
     }
 
     private StringBuilder generateUrlClickMessage() {
